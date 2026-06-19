@@ -1,4 +1,4 @@
-// napps/profile/src/lib/profile-engine.ts
+// napplets/profile/src/lib/profile-engine.ts
 // Stateful profile logic, split out of profile-store's factory so neither the
 // file nor createProfileStore grows unbounded. All functions operate on an
 // explicit ProfileContext (the store's mutable state + tracking).

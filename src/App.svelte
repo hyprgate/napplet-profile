@@ -5,6 +5,7 @@
     KIND_METADATA,
     IDENTITY_CHANGED_TOPIC,
     LEGACY_AUTH_IDENTITY_CHANGED_TOPIC,
+    PROFILE_READY_TOPIC,
     isCanonicalHexPubkey,
     parseNoteContent,
     parseIdentityChangedPayload,
@@ -83,6 +84,7 @@
         pendingPubkey = targetPubkey;
       }
     });
+    ipc.emit(PROFILE_READY_TOPIC);
 
     const handleIdentityChanged = (payload: unknown) => {
       const identityChange = parseIdentityChangedPayload(payload);
@@ -227,7 +229,10 @@
   });
 </script>
 
-<main class="bg-bg-base h-screen w-screen text-text-primary font-mono overflow-hidden">
+<main
+  class="bg-bg-base h-screen w-screen text-text-primary font-mono overflow-hidden"
+  data-profile-pubkey={profilePubkey}
+>
   {#if error}
     <!-- Error state -->
     <div class="flex flex-col items-center justify-center h-full gap-3">

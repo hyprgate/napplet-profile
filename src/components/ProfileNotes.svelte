@@ -221,7 +221,7 @@
             </div>
           {/if}
           <div class="note-content">
-            <ProfileNoteContent content={previewProfileNoteContent(note.content)} {profileLabel} />
+            <ProfileNoteContent content={previewProfileNoteContent(note.content)} emojiTags={note.tags} {profileLabel} />
             <ProfileNoteEmbeds content={note.content} />
           </div>
           <div class="engagement-row" aria-label="Engagement counts">

@@ -75,6 +75,8 @@ export interface ProfileContext {
   subs: Subscription[];
   engagementSub: Subscription | null;
   engagementTargetsKey: string;
+  engagementSyncQueued: boolean;
+  engagementSyncRevision: number;
   seenEngagementIds: SeenEngagementIds;
   oldestNoteCreatedAt: number | null;
 }
@@ -98,6 +100,8 @@ export function createProfileContext(notify: () => void): ProfileContext {
     subs: [],
     engagementSub: null,
     engagementTargetsKey: '',
+    engagementSyncQueued: false,
+    engagementSyncRevision: 0,
     seenEngagementIds: {
       reactions: new Map<string, Set<string>>(),
       comments: new Map<string, Set<string>>(),
@@ -113,6 +117,8 @@ export function closeSubs(ctx: ProfileContext): void {
   ctx.engagementSub?.close();
   ctx.engagementSub = null;
   ctx.engagementTargetsKey = '';
+  ctx.engagementSyncQueued = false;
+  ctx.engagementSyncRevision++;
   ctx.oldestNoteCreatedAt = null;
 }
 
@@ -132,7 +138,7 @@ function addNote(ctx: ProfileContext, event: NostrEvent): void {
     ctx.oldestNoteCreatedAt = event.created_at;
   }
   ctx.notify();
-  syncEngagementSubscription(ctx);
+  queueEngagementSubscription(ctx);
 }
 
 // ── Engagement helpers ────────────────────────────────────────────────────
@@ -249,6 +255,17 @@ function syncEngagementSubscription(ctx: ProfileContext): void {
     (event: NostrEvent) => applyEngagementEvent(ctx, event),
     () => {},
   );
+}
+
+function queueEngagementSubscription(ctx: ProfileContext): void {
+  if (ctx.engagementSyncQueued) return;
+  ctx.engagementSyncQueued = true;
+  const revision = ctx.engagementSyncRevision;
+  queueMicrotask(() => {
+    if (ctx.engagementSyncRevision !== revision) return;
+    ctx.engagementSyncQueued = false;
+    syncEngagementSubscription(ctx);
+  });
 }
 
 // ── Metadata / notes loading ──────────────────────────────────────────────

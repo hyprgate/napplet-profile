@@ -309,6 +309,7 @@ describe('createProfileStore', () => {
     store.loadProfile('pubkey123');
     await flush();
     notesOnEvent!(makeEvent({ id: 'note1' }));
+    await flush();
 
     engagementOnEvent!(makeEvent({ id: 'react1', kind: 7, pubkey: 'pk2', tags: [['e', 'note1']], content: '+' }));
     engagementOnEvent!(makeEvent({ id: 'comment1', kind: 1, pubkey: 'pk3', tags: [['e', 'note1']], content: 'reply' }));
@@ -319,6 +320,39 @@ describe('createProfileStore', () => {
       reactionGroups: [{ content: '+', count: 1 }],
       comments: 2,
     });
+  });
+
+  it('batches engagement subscription retargeting during initial note bursts', async () => {
+    let notesOnEvent: ((event: NostrEvent) => void) | null = null;
+    const engagementHandles = [makeCloseHandle(), makeCloseHandle(), makeCloseHandle()];
+
+    mockSubscribe.mockImplementation((filters, onEvent) => {
+      const f = Array.isArray(filters) ? filters[0] : filters;
+      if (f?.authors?.includes('pubkey123') && f.kinds?.includes(1)) {
+        notesOnEvent = onEvent ?? null;
+        return makeCloseHandle();
+      }
+      if (Array.isArray(filters) && filters.some((filter) => filter.kinds?.includes(7))) {
+        return engagementHandles.shift() ?? makeCloseHandle();
+      }
+      return makeCloseHandle();
+    });
+
+    const store = createProfileStore();
+    store.loadProfile('pubkey123');
+    await flush();
+
+    notesOnEvent!(makeEvent({ id: 'note1', created_at: 3 }));
+    notesOnEvent!(makeEvent({ id: 'note2', created_at: 2 }));
+    notesOnEvent!(makeEvent({ id: 'note3', created_at: 1 }));
+    await flush();
+
+    const engagementCalls = mockSubscribe.mock.calls.filter((call) => (
+      Array.isArray(call[0]) && call[0].some((filter) => filter.kinds?.includes(7))
+    ));
+    expect(engagementCalls).toHaveLength(1);
+    const filters = engagementCalls[0]![0] as Array<{ '#e'?: string[] }>;
+    expect(filters[0]!['#e']).toEqual(['note1', 'note2', 'note3']);
   });
 
   it('isFollowing reflects p-tags in kind 3 event delivered via subscribe', async () => {

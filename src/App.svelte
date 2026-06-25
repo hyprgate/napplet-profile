@@ -10,12 +10,12 @@
     parseNoteContent,
     parseIdentityChangedPayload,
     parseProfileOpenPayload,
-    waitForPublicKey,
   } from '@hyprgate/utils';
   import type { EngagementCounts, ProfileContent } from './lib/profile-store';
   import type { NostrEvent } from '@hyprgate/types';
   import { createProfileStore } from './lib/profile-store';
   import { createEmojiSetStore, type EmojiOption } from './lib/emoji-sets';
+  import { createCurrentUserPubkeyLoader, resolveInitialProfileTarget } from './lib/profile-startup';
   import ProfileLayout from './components/ProfileLayout.svelte';
 
   // ── Reactive state bridged from the profile store ───────────────────────────
@@ -29,6 +29,8 @@
   let showReplies = $state(false);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  let startupError = $state<string | null>(null);
+  let resolvingCurrentProfile = $state(false);
   let profilePubkey = $state('');
   let referencedProfileVersion = $state(0);
   const referencedProfiles = new Map<string, ProfileContent>();
@@ -70,6 +72,12 @@
     if (isCanonicalHexPubkey(pubkey)) emojiStore.init(pubkey);
   }
 
+  function loadTargetProfile(pubkey: string): void {
+    startupError = null;
+    resolvingCurrentProfile = false;
+    store.loadProfile(pubkey);
+  }
+
   // ── Inter-pane event subscriptions ──────────────────────────────────────────
   // Use onMount (not $effect) to avoid Svelte 5 reactivity loops —
   // on() callbacks write to $state which must not re-trigger the subscription setup.
@@ -79,7 +87,7 @@
       if (!profileOpen) return;
       const targetPubkey = profileOpen.pubkey;
       if (ready) {
-        store.loadProfile(targetPubkey);
+        loadTargetProfile(targetPubkey);
       } else {
         pendingPubkey = targetPubkey;
       }
@@ -91,9 +99,9 @@
       if (isCanonicalHexPubkey(identityChange?.pubkey)) {
         initReactionPalette(identityChange.pubkey);
         if (!store.state.pubkey) {
-          store.loadProfile(identityChange.pubkey);
+          loadTargetProfile(identityChange.pubkey);
         } else {
-          store.loadProfile(store.state.pubkey);
+          loadTargetProfile(store.state.pubkey);
         }
       }
     };
@@ -109,13 +117,11 @@
 
   onMount(() => {
     const controller = new AbortController();
+    const currentUser = createCurrentUserPubkeyLoader(identity, controller.signal);
 
     // The reaction palette always follows the logged-in user, regardless of
     // which profile is being viewed.
-    void waitForPublicKey(identity, {
-      signal: controller.signal,
-      isValidPubkey: isCanonicalHexPubkey,
-    }).then((pk) => {
+    void currentUser.load().then((pk) => {
       if (!controller.signal.aborted && isCanonicalHexPubkey(pk)) initReactionPalette(pk);
     });
 
@@ -123,25 +129,25 @@
     const params = new URLSearchParams(window.location.search);
     const urlPubkey = params.get('pubkey');
 
-    if (isCanonicalHexPubkey(urlPubkey)) {
-      store.loadProfile(urlPubkey);
-    } else if (pendingPubkey) {
-      store.loadProfile(pendingPubkey);
-      pendingPubkey = null;
-    } else {
-      void waitForPublicKey(identity, {
-        signal: controller.signal,
-        isValidPubkey: isCanonicalHexPubkey,
-      }).then((pk) => {
-        if (!controller.signal.aborted && pk && !store.state.pubkey) {
-          store.loadProfile(pk);
-        }
-      });
-    }
+    resolvingCurrentProfile = !isCanonicalHexPubkey(urlPubkey) && !isCanonicalHexPubkey(pendingPubkey);
+    void resolveInitialProfileTarget({
+      urlPubkey,
+      pendingPubkey,
+      currentUser,
+    }).then((target) => {
+      if (controller.signal.aborted || store.state.pubkey) return;
+      if (target.pubkey) {
+        loadTargetProfile(target.pubkey);
+        pendingPubkey = null;
+        return;
+      }
+      resolvingCurrentProfile = false;
+      startupError = 'Current profile is unavailable. Sign in or open a specific profile.';
+    });
 
     ready = true;
     if (pendingPubkey) {
-      store.loadProfile(pendingPubkey);
+      loadTargetProfile(pendingPubkey);
       pendingPubkey = null;
     }
 
@@ -233,15 +239,15 @@
   class="bg-bg-base h-screen w-screen text-text-primary font-mono overflow-hidden"
   data-profile-pubkey={profilePubkey}
 >
-  {#if error}
+  {#if error || startupError}
     <!-- Error state -->
     <div class="flex flex-col items-center justify-center h-full gap-3">
       <div class="text-accent-red text-sm font-mono text-center max-w-xs px-4">
         <p class="font-bold mb-1">Failed to load profile</p>
-        <p class="text-text-muted">{error}</p>
+        <p class="text-text-muted">{error ?? startupError}</p>
       </div>
     </div>
-  {:else if loading && notes.length === 0 && !metadata}
+  {:else if resolvingCurrentProfile || (loading && notes.length === 0 && !metadata)}
     <!-- Loading skeleton -->
     <div class="flex flex-col h-full animate-pulse">
       <!-- Banner skeleton -->

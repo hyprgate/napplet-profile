@@ -2,6 +2,7 @@
   import type { ProfileContent } from 'applesauce-core/helpers/profile';
   import { pubkeyColorStyle, resourceBackgroundImage, resourceImage } from '@hyprgate/utils';
   import FollowButton from './FollowButton.svelte';
+  import ProfileIdentityShare from './ProfileIdentityShare.svelte';
 
   interface Props {
     metadata: ProfileContent | null;
@@ -93,5 +94,7 @@
       <span><span class="text-text-primary font-medium">{followingCount}</span> following</span>
       <span><span class="text-text-primary font-medium">--</span> followers</span>
     </div>
+
+    <ProfileIdentityShare {profilePubkey} />
   </div>
 </div>

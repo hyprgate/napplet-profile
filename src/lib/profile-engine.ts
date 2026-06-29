@@ -79,6 +79,14 @@ export interface ProfileContext {
   engagementSyncRevision: number;
   seenEngagementIds: SeenEngagementIds;
   oldestNoteCreatedAt: number | null;
+  /**
+   * #244: bounded recovery timer for the metadata load. A reopen that lands
+   * before the previous load's relay subscriptions settle can lose the new
+   * metadata subscription's reply (and @napplet/nap has no reply timeout), so
+   * the skeleton would otherwise hang forever. This re-issues the metadata
+   * subscribe on a settled connection, then finally clears `loading`.
+   */
+  loadWatchdog: ReturnType<typeof setTimeout> | null;
 }
 
 export function createProfileContext(notify: () => void): ProfileContext {
@@ -108,10 +116,25 @@ export function createProfileContext(notify: () => void): ProfileContext {
       zaps: new Map<string, Set<string>>(),
     },
     oldestNoteCreatedAt: null,
+    loadWatchdog: null,
   };
 }
 
+// #244: how long to wait for the metadata subscription's first event/EOSE before
+// re-issuing it (a reopen relay-churn race can drop the reply), and how many
+// times before giving up and clearing the skeleton.
+const METADATA_LOAD_TIMEOUT_MS = 8_000;
+const MAX_METADATA_RETRIES = 2;
+
+function clearLoadWatchdog(ctx: ProfileContext): void {
+  if (ctx.loadWatchdog !== null) {
+    clearTimeout(ctx.loadWatchdog);
+    ctx.loadWatchdog = null;
+  }
+}
+
 export function closeSubs(ctx: ProfileContext): void {
+  clearLoadWatchdog(ctx);
   ctx.subs.forEach((s) => s.close());
   ctx.subs.length = 0;
   ctx.engagementSub?.close();
@@ -287,16 +310,40 @@ function subscribeMetadata(ctx: ProfileContext, pubkey: string, useOutbox: boole
       } catch {
         // Invalid kind 0 content — skip
       }
+      clearLoadWatchdog(ctx);
       ctx.state.loading = false;
       ctx.notify();
     },
     () => {
       // EOSE — metadata subscription is live, mark loading done if not already
+      clearLoadWatchdog(ctx);
       ctx.state.loading = false;
       ctx.notify();
     },
   );
   ctx.subs.push(metaSub);
+}
+
+/**
+ * #244 recovery: if the metadata load hasn't resolved within the timeout, the
+ * reply was likely lost in a reopen relay-churn race. Re-issue the metadata
+ * subscribe on a now-settled connection (bounded retries); on the final attempt,
+ * clear `loading` so the napplet shows the profile shell instead of an infinite
+ * skeleton. A no-op if a newer load superseded this one or it already resolved.
+ */
+function armLoadWatchdog(ctx: ProfileContext, pubkey: string, useOutbox: boolean, attempt: number): void {
+  clearLoadWatchdog(ctx);
+  ctx.loadWatchdog = setTimeout(() => {
+    ctx.loadWatchdog = null;
+    if (ctx.state.pubkey !== pubkey || !ctx.state.loading) return;
+    if (attempt < MAX_METADATA_RETRIES) {
+      subscribeMetadata(ctx, pubkey, useOutbox);
+      armLoadWatchdog(ctx, pubkey, useOutbox, attempt + 1);
+    } else {
+      ctx.state.loading = false;
+      ctx.notify();
+    }
+  }, METADATA_LOAD_TIMEOUT_MS);
 }
 
 function subscribeFollowState(ctx: ProfileContext, pubkey: string): void {
@@ -337,6 +384,8 @@ export function loadProfile(ctx: ProfileContext, pubkey: string): void {
     if (ctx.state.pubkey !== pubkey) return;
 
     subscribeMetadata(ctx, pubkey, useOutbox);
+    // #244: guard the metadata load against a lost reply on rapid reopen.
+    armLoadWatchdog(ctx, pubkey, useOutbox, 0);
 
     const notesSub = subscribeAuthor(
       useOutbox,

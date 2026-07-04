@@ -79,6 +79,12 @@ function makeEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
   };
 }
 
+type RelayEventResult = { event: NostrEvent };
+
+function fireRelayEvent(callback: ((result: RelayEventResult) => void) | null, event: NostrEvent): void {
+  callback?.({ event });
+}
+
 /**
  * Build a subscribe mock that:
  * - captures onEvent/onEose for a matching filter predicate
@@ -87,12 +93,12 @@ function makeEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
 function captureSubscribe(
   predicate: (filter: import('@hyprgate/types').NostrFilter | import('@hyprgate/types').NostrFilter[]) => boolean,
 ): {
-  onEvent: ((ev: NostrEvent) => void) | null;
+  onEvent: ((result: RelayEventResult) => void) | null;
   onEose: (() => void) | null;
   handle: { close: () => void };
 } {
   const captured: {
-    onEvent: ((ev: NostrEvent) => void) | null;
+    onEvent: ((result: RelayEventResult) => void) | null;
     onEose: (() => void) | null;
     handle: { close: () => void };
   } = { onEvent: null, onEose: null, handle: makeCloseHandle() };
@@ -182,7 +188,7 @@ describe('createProfileStore', () => {
   });
 
   it('loadProfile populates metadata when kind 0 event arrives', async () => {
-    let capturedOnEvent: ((event: NostrEvent) => void) | null = null;
+    let capturedOnEvent: ((result: RelayEventResult) => void) | null = null;
 
     mockSubscribe.mockImplementation((filters, onEvent) => {
       const f = Array.isArray(filters) ? filters[0] : filters;
@@ -207,7 +213,7 @@ describe('createProfileStore', () => {
       sig: 'sig',
     };
 
-    capturedOnEvent!(kind0Event);
+    fireRelayEvent(capturedOnEvent, kind0Event);
 
     expect(store.state.metadata).toBeDefined();
     expect((store.state.metadata as { name?: string })?.name).toBe('Alice');
@@ -215,7 +221,7 @@ describe('createProfileStore', () => {
   });
 
   it('loadProfile populates notes when kind 1 event arrives', async () => {
-    const onEventCallbacks: ((event: NostrEvent) => void)[] = [];
+    const onEventCallbacks: ((result: RelayEventResult) => void)[] = [];
 
     mockSubscribe.mockImplementation((filters, onEvent) => {
       const f = Array.isArray(filters) ? filters[0] : filters;
@@ -239,7 +245,7 @@ describe('createProfileStore', () => {
       sig: 'sig',
     };
 
-    onEventCallbacks.forEach((cb) => cb(noteEvent));
+    onEventCallbacks.forEach((cb) => fireRelayEvent(cb, noteEvent));
 
     expect(store.state.notes).toContain(noteEvent);
   });
@@ -254,15 +260,15 @@ describe('createProfileStore', () => {
     store.loadProfile('pubkey123');
     await flush();
 
-    captured.onEvent!(makeEvent({ id: 'root', tags: [] }));
-    captured.onEvent!(makeEvent({ id: 'reply', tags: [['e', 'root'], ['p', 'pubkey123']] }));
+    fireRelayEvent(captured.onEvent, makeEvent({ id: 'root', tags: [] }));
+    fireRelayEvent(captured.onEvent, makeEvent({ id: 'reply', tags: [['e', 'root'], ['p', 'pubkey123']] }));
 
     expect(store.state.showReplies).toBe(false);
     expect(store.state.notes.map((note) => note.id)).toEqual(['root']);
   });
 
   it('showReplies reloads notes with kind 1 and kind 1111 filters', async () => {
-    let capturedNotesOnEvent: ((event: NostrEvent) => void) | null = null;
+    let capturedNotesOnEvent: ((result: RelayEventResult) => void) | null = null;
 
     mockSubscribe.mockImplementation((filters, onEvent) => {
       const f = Array.isArray(filters) ? filters[0] : filters;
@@ -286,15 +292,15 @@ describe('createProfileStore', () => {
     const notesFilter = (Array.isArray(notesCall![0]) ? notesCall![0][0] : notesCall![0]) as { kinds?: number[] };
     expect(notesFilter.kinds).toEqual([1, 1111]);
 
-    capturedNotesOnEvent!(makeEvent({ id: 'kind1-reply', tags: [['e', 'root'], ['p', 'pubkey123']] }));
-    capturedNotesOnEvent!(makeEvent({ id: 'kind1111-reply', kind: 1111, tags: [['E', 'root'], ['K', '1'], ['P', 'pubkey123']] }));
+    fireRelayEvent(capturedNotesOnEvent, makeEvent({ id: 'kind1-reply', tags: [['e', 'root'], ['p', 'pubkey123']] }));
+    fireRelayEvent(capturedNotesOnEvent, makeEvent({ id: 'kind1111-reply', kind: 1111, tags: [['E', 'root'], ['K', '1'], ['P', 'pubkey123']] }));
 
     expect(store.state.notes.map((note) => note.id)).toEqual(['kind1-reply', 'kind1111-reply']);
   });
 
   it('counts engagement events for profile notes', async () => {
-    let notesOnEvent: ((event: NostrEvent) => void) | null = null;
-    let engagementOnEvent: ((event: NostrEvent) => void) | null = null;
+    let notesOnEvent: ((result: RelayEventResult) => void) | null = null;
+    let engagementOnEvent: ((result: RelayEventResult) => void) | null = null;
 
     mockSubscribe.mockImplementation((filters, onEvent) => {
       const f = Array.isArray(filters) ? filters[0] : filters;
@@ -308,12 +314,12 @@ describe('createProfileStore', () => {
     const store = createProfileStore();
     store.loadProfile('pubkey123');
     await flush();
-    notesOnEvent!(makeEvent({ id: 'note1' }));
+    fireRelayEvent(notesOnEvent, makeEvent({ id: 'note1' }));
     await flush();
 
-    engagementOnEvent!(makeEvent({ id: 'react1', kind: 7, pubkey: 'pk2', tags: [['e', 'note1']], content: '+' }));
-    engagementOnEvent!(makeEvent({ id: 'comment1', kind: 1, pubkey: 'pk3', tags: [['e', 'note1']], content: 'reply' }));
-    engagementOnEvent!(makeEvent({ id: 'comment2', kind: 1111, pubkey: 'pk4', tags: [['E', 'note1']], content: 'nip22' }));
+    fireRelayEvent(engagementOnEvent, makeEvent({ id: 'react1', kind: 7, pubkey: 'pk2', tags: [['e', 'note1']], content: '+' }));
+    fireRelayEvent(engagementOnEvent, makeEvent({ id: 'comment1', kind: 1, pubkey: 'pk3', tags: [['e', 'note1']], content: 'reply' }));
+    fireRelayEvent(engagementOnEvent, makeEvent({ id: 'comment2', kind: 1111, pubkey: 'pk4', tags: [['E', 'note1']], content: 'nip22' }));
 
     expect(store.state.engagement.get('note1')).toMatchObject({
       reactions: 1,
@@ -323,7 +329,7 @@ describe('createProfileStore', () => {
   });
 
   it('batches engagement subscription retargeting during initial note bursts', async () => {
-    let notesOnEvent: ((event: NostrEvent) => void) | null = null;
+    let notesOnEvent: ((result: RelayEventResult) => void) | null = null;
     const engagementHandles = [makeCloseHandle(), makeCloseHandle(), makeCloseHandle()];
 
     mockSubscribe.mockImplementation((filters, onEvent) => {
@@ -342,9 +348,9 @@ describe('createProfileStore', () => {
     store.loadProfile('pubkey123');
     await flush();
 
-    notesOnEvent!(makeEvent({ id: 'note1', created_at: 3 }));
-    notesOnEvent!(makeEvent({ id: 'note2', created_at: 2 }));
-    notesOnEvent!(makeEvent({ id: 'note3', created_at: 1 }));
+    fireRelayEvent(notesOnEvent, makeEvent({ id: 'note1', created_at: 3 }));
+    fireRelayEvent(notesOnEvent, makeEvent({ id: 'note2', created_at: 2 }));
+    fireRelayEvent(notesOnEvent, makeEvent({ id: 'note3', created_at: 1 }));
     await flush();
 
     const engagementCalls = mockSubscribe.mock.calls.filter((call) => (
@@ -374,7 +380,7 @@ describe('createProfileStore', () => {
       const f = Array.isArray(filters) ? filters[0] : filters;
       if (f?.kinds?.includes(3)) {
         queueMicrotask(() => {
-          onEvent?.(kind3Event);
+          fireRelayEvent(onEvent ?? null, kind3Event);
           onEose?.();
         });
       }
@@ -406,7 +412,7 @@ describe('createProfileStore', () => {
       const f = Array.isArray(filters) ? filters[0] : filters;
       if (f?.kinds?.includes(3)) {
         queueMicrotask(() => {
-          onEvent?.(kind3Event);
+          fireRelayEvent(onEvent ?? null, kind3Event);
           onEose?.();
         });
       }
@@ -439,7 +445,7 @@ describe('createProfileStore', () => {
       const f = Array.isArray(filters) ? filters[0] : filters;
       if (f?.kinds?.includes(3)) {
         queueMicrotask(() => {
-          onEvent?.(existing3);
+          fireRelayEvent(onEvent ?? null, existing3);
           onEose?.();
         });
       }
@@ -483,7 +489,7 @@ describe('createProfileStore', () => {
       const f = Array.isArray(filters) ? filters[0] : filters;
       if (f?.kinds?.includes(3)) {
         queueMicrotask(() => {
-          onEvent?.(existing3);
+          fireRelayEvent(onEvent ?? null, existing3);
           onEose?.();
         });
       }
@@ -609,7 +615,7 @@ describe('profile outbox gating', () => {
     expect(notesSub).toBeDefined();
     // Drive a note in to set oldestNoteCreatedAt
     const fake = (mockOutboxSubscribe.mock.results[notesSub!.idx]!.value as unknown as FakeOutboxSub);
-    fake.emit('event', { id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500, tags: [], content: 'hi', sig: 's' });
+    fake.emit('event', { event: { id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500, tags: [], content: 'hi', sig: 's' } });
 
     mockOutboxSubscribe.mockClear();
     store.loadMore();
@@ -625,7 +631,7 @@ describe('profile outbox gating', () => {
     installShell(false);
 
     const relayKinds: string[] = [];
-    let notesOnEvent: ((e: NostrEvent) => void) | null = null;
+    let notesOnEvent: ((result: RelayEventResult) => void) | null = null;
     mockSubscribe.mockImplementation((filters, onEvent, onEose) => {
       const kind = classifyFilter(filters);
       relayKinds.push(kind);
@@ -643,7 +649,7 @@ describe('profile outbox gating', () => {
     expect(relayKinds).toContain('notes');
     expect(relayKinds).toContain('self-kind3');
 
-    notesOnEvent!(makeEvent({ id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500 }));
+    fireRelayEvent(notesOnEvent, makeEvent({ id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500 }));
     relayKinds.length = 0;
     store.loadMore();
     await flush();

@@ -38,12 +38,12 @@ function subscribeAuthor(
   onEose: () => void,
 ): Subscription {
   if (useOutbox) {
-    const sub = outbox.subscribe(filters, { strategy: 'outbox' });
-    sub.on('event', (event) => onEvent(event as NostrEvent));
-    sub.on('eose', onEose);
+    const sub = outbox.subscribe(filters, { strategy: 'outbox', live: false });
+    sub.on('event', (result) => onEvent(result.event as NostrEvent));
+    sub.on('closed', onEose);
     return { close: () => sub.close() };
   }
-  return relay.subscribe(filters, onEvent, onEose);
+  return relay.subscribe(filters, (result) => onEvent(result.event as NostrEvent), onEose);
 }
 import {
   KIND_NIP22_COMMENT,
@@ -59,7 +59,7 @@ import type { EngagementCounts, ProfileContent, ProfileState, ReactionGroup } fr
 export function collectOnEose(filters: NostrFilter | NostrFilter[]): Promise<NostrEvent[]> {
   return new Promise((resolve) => {
     const events: NostrEvent[] = [];
-    const sub = relay.subscribe(filters, (ev) => events.push(ev), () => { sub.close(); resolve(events); });
+    const sub = relay.subscribe(filters, (result) => events.push(result.event as NostrEvent), () => { sub.close(); resolve(events); });
   });
 }
 
@@ -252,7 +252,7 @@ function syncEngagementSubscription(ctx: ProfileContext): void {
       { kinds: [KIND_NIP22_COMMENT], '#E': targetIds },
       { kinds: [KIND_ZAP_RECEIPT], '#e': targetIds },
     ],
-    (event: NostrEvent) => applyEngagementEvent(ctx, event),
+    (result) => applyEngagementEvent(ctx, result.event as NostrEvent),
     () => {},
   );
 }

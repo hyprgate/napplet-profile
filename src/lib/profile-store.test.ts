@@ -12,6 +12,7 @@ vi.mock('@napplet/sdk', () => ({
   },
   outbox: {
     subscribe: vi.fn(),
+    query: vi.fn(),
   },
   identity: {
     getPublicKey: vi.fn().mockResolvedValue('deadbeef'),
@@ -24,31 +25,11 @@ import { relay, outbox, identity } from '@napplet/sdk';
 
 const mockSubscribe = vi.mocked(relay.subscribe);
 const mockOutboxSubscribe = vi.mocked(outbox.subscribe);
+const mockOutboxQuery = vi.mocked(outbox.query);
 const mockPublish = vi.mocked(relay.publish);
 
 function makeCloseHandle(): { close: () => void } {
   return { close: vi.fn(() => {}) };
-}
-
-interface FakeOutboxSub {
-  close: ReturnType<typeof vi.fn>;
-  handlers: Record<string, ((...args: unknown[]) => void) | undefined>;
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-  emit: (event: string, ...args: unknown[]) => void;
-}
-
-function makeOutboxSub(): FakeOutboxSub {
-  const sub: FakeOutboxSub = {
-    close: vi.fn(),
-    handlers: {},
-    on(event, cb) {
-      this.handlers[event] = cb;
-    },
-    emit(event, ...args) {
-      this.handlers[event]?.(...args);
-    },
-  };
-  return sub;
 }
 
 /** Install window.napplet.shell with a toggleable outbox capability. */
@@ -127,7 +108,8 @@ beforeEach(() => {
   installShell(false);
   // Default: subscribe returns a closeable handle
   mockSubscribe.mockReturnValue(makeCloseHandle());
-  mockOutboxSubscribe.mockReturnValue(makeOutboxSub() as unknown as ReturnType<typeof outbox.subscribe>);
+  mockOutboxSubscribe.mockReturnValue(makeCloseHandle() as unknown as ReturnType<typeof outbox.subscribe>);
+  mockOutboxQuery.mockResolvedValue({ events: [] });
   // Default: publish succeeds
   mockPublish.mockResolvedValue(makeEvent({ id: 'published' }));
 });
@@ -584,19 +566,22 @@ describe('profile outbox gating', () => {
       if (kind === 'self-kind3') queueMicrotask(() => onEose?.());
       return makeCloseHandle();
     });
-    mockOutboxSubscribe.mockImplementation(() => makeOutboxSub() as unknown as ReturnType<typeof outbox.subscribe>);
+    const loadedNote = { id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500, tags: [], content: 'hi', sig: 's' };
+    mockOutboxQuery.mockImplementation(async (filters) => {
+      return classifyFilter(filters) === 'notes'
+        ? { events: [{ event: loadedNote }] }
+        : { events: [] };
+    });
 
     const store = createProfileStore();
     store.loadProfile('targetPubkey');
     await flush();
+    await flush();
 
-    // metadata + notes go through outbox with strategy 'outbox'
-    const outboxFilters = mockOutboxSubscribe.mock.calls.map((c) => classifyFilter(c[0]));
+    // metadata + notes go through outbox query.
+    const outboxFilters = mockOutboxQuery.mock.calls.map((c) => classifyFilter(c[0]));
     expect(outboxFilters).toContain('metadata');
     expect(outboxFilters).toContain('notes');
-    for (const call of mockOutboxSubscribe.mock.calls) {
-      expect(call[1]).toEqual(expect.objectContaining({ strategy: 'outbox' }));
-    }
 
     // engagement + self-kind3 must NOT be on outbox
     expect(outboxFilters).not.toContain('engagement');
@@ -608,23 +593,14 @@ describe('profile outbox gating', () => {
     // self-kind3 stays on relay
     expect(relayKinds).toContain('self-kind3');
 
-    // loadMore: simulate a loaded note then paginate
-    const notesSub = mockOutboxSubscribe.mock.calls
-      .map((c, idx) => ({ kind: classifyFilter(c[0]), idx }))
-      .find((x) => x.kind === 'notes');
-    expect(notesSub).toBeDefined();
-    // Drive a note in to set oldestNoteCreatedAt
-    const fake = (mockOutboxSubscribe.mock.results[notesSub!.idx]!.value as unknown as FakeOutboxSub);
-    fake.emit('event', { event: { id: 'n1', kind: 1, pubkey: 'targetPubkey', created_at: 500, tags: [], content: 'hi', sig: 's' } });
+    expect(store.state.notes.map((event) => event.id)).toEqual(['n1']);
 
-    mockOutboxSubscribe.mockClear();
+    mockOutboxQuery.mockClear();
     store.loadMore();
     await flush();
-    const moreFilters = mockOutboxSubscribe.mock.calls.map((c) => classifyFilter(c[0]));
+    await flush();
+    const moreFilters = mockOutboxQuery.mock.calls.map((c) => classifyFilter(c[0]));
     expect(moreFilters).toContain('notes');
-    for (const call of mockOutboxSubscribe.mock.calls) {
-      expect(call[1]).toEqual(expect.objectContaining({ strategy: 'outbox' }));
-    }
   });
 
   it('falls back to relay.subscribe for metadata/notes/loadMore when outbox unsupported', async () => {
@@ -644,7 +620,7 @@ describe('profile outbox gating', () => {
     store.loadProfile('targetPubkey');
     await flush();
 
-    expect(mockOutboxSubscribe).not.toHaveBeenCalled();
+    expect(mockOutboxQuery).not.toHaveBeenCalled();
     expect(relayKinds).toContain('metadata');
     expect(relayKinds).toContain('notes');
     expect(relayKinds).toContain('self-kind3');
@@ -653,7 +629,7 @@ describe('profile outbox gating', () => {
     relayKinds.length = 0;
     store.loadMore();
     await flush();
-    expect(mockOutboxSubscribe).not.toHaveBeenCalled();
+    expect(mockOutboxQuery).not.toHaveBeenCalled();
     expect(relayKinds).toContain('notes');
   });
 });

@@ -38,10 +38,16 @@ function subscribeAuthor(
   onEose: () => void,
 ): Subscription {
   if (useOutbox) {
-    const sub = outbox.subscribe(filters, { strategy: 'outbox', live: false });
-    sub.on('event', (result) => onEvent(result.event as NostrEvent));
-    sub.on('closed', onEose);
-    return { close: () => sub.close() };
+    let closed = false;
+    void outbox.query(filters)
+      .then((result) => {
+        if (closed) return;
+        for (const item of result.events) onEvent(item.event as NostrEvent);
+      })
+      .finally(() => {
+        if (!closed) onEose();
+      });
+    return { close: () => { closed = true; } };
   }
   return relay.subscribe(filters, (result) => onEvent(result.event as NostrEvent), onEose);
 }

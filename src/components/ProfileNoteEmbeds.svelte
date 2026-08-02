@@ -1,6 +1,13 @@
 <script lang="ts">
-  import { inc as ipc } from '@napplet/sdk';
-  import { NOTE_VIEWER_OPEN_TOPIC, createNoteViewerOpenPayload, extractNoteContentEmbeds, pubkeyColorStyle } from '@hyprgate/utils';
+  import { intent } from '@napplet/sdk';
+  import { parseIntentResult } from '@hyprgate/types';
+  import {
+    createNoteViewerOpenIntentRequest,
+    createNoteViewerOpenPayload,
+    createProfileIntentRequest,
+    extractNoteContentEmbeds,
+    pubkeyColorStyle,
+  } from '@hyprgate/utils';
   import ProfileResourceEmbed from './ProfileResourceEmbed.svelte';
 
   interface Props {
@@ -10,20 +17,31 @@
   let { content }: Props = $props();
   let embeds = $derived(extractNoteContentEmbeds(content, 6, { includeImageUrls: false, includeResources: false }));
 
-  function openProfile(pubkey: string): void {
-    ipc.emit('profile:open', [], JSON.stringify({ pubkey }));
+  async function invoke(request: ReturnType<typeof createProfileIntentRequest> | ReturnType<typeof createNoteViewerOpenIntentRequest>): Promise<void> {
+    if (!request) return;
+    try {
+      const result = parseIntentResult(await intent.invoke(request));
+      if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
+      if (!result.ok || !result.handled) return;
+    } catch {
+      // Keep the existing no-op failure behavior when navigation is unavailable.
+    }
   }
 
-  function openEvent(id: string, source: string): void {
+  async function openProfile(pubkey: string): Promise<void> {
+    await invoke(createProfileIntentRequest({ pubkey }));
+  }
+
+  async function openEvent(id: string, source: string): Promise<void> {
     const payload = createNoteViewerOpenPayload({
       target: { type: 'event', id, nip19: source },
       behavior: { focus: true },
       source: { napplet: 'profile' },
     });
-    if (payload) ipc.emit(NOTE_VIEWER_OPEN_TOPIC, [], JSON.stringify(payload));
+    await invoke(payload ? createNoteViewerOpenIntentRequest(payload) : null);
   }
 
-  function openAddress(value: string, source: string): void {
+  async function openAddress(value: string, source: string): Promise<void> {
     const [kindValue, pubkey, ...identifierParts] = value.split(':');
     const kind = Number(kindValue);
     const identifier = identifierParts.join(':');
@@ -33,7 +51,7 @@
       behavior: { focus: true },
       source: { napplet: 'profile' },
     });
-    if (payload) ipc.emit(NOTE_VIEWER_OPEN_TOPIC, [], JSON.stringify(payload));
+    await invoke(payload ? createNoteViewerOpenIntentRequest(payload) : null);
   }
 
   function shortReference(source: string): string {

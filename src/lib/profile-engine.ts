@@ -36,9 +36,18 @@ function subscribeAuthor(
   filters: NostrFilter | NostrFilter[],
   onEvent: (event: NostrEvent) => void,
   onEose: () => void,
+  options: { live?: boolean } = {},
 ): Subscription {
   if (useOutbox) {
     let closed = false;
+    // A query is finite and can return before late NIP-65 discovery attaches
+    // author relays. Keep initial profile data live through the shell-owned
+    // outbox subscription while the query hydrates its first history batch.
+    // Pagination deliberately remains query-only (kehto/web#190).
+    const stream = options.live ? outbox.subscribe(filters) : null;
+    stream?.on('event', (result) => {
+      if (!closed) onEvent(result.event as NostrEvent);
+    });
     void outbox.query(filters)
       .then((result) => {
         if (closed) return;
@@ -47,7 +56,12 @@ function subscribeAuthor(
       .finally(() => {
         if (!closed) onEose();
       });
-    return { close: () => { closed = true; } };
+    return {
+      close: () => {
+        closed = true;
+        stream?.close();
+      },
+    };
   }
   return relay.subscribe(filters, (result) => onEvent(result.event as NostrEvent), onEose);
 }
@@ -301,6 +315,7 @@ function subscribeMetadata(ctx: ProfileContext, pubkey: string, useOutbox: boole
       ctx.state.loading = false;
       ctx.notify();
     },
+    { live: true },
   );
   ctx.subs.push(metaSub);
 }
@@ -351,6 +366,7 @@ export function loadProfile(ctx: ProfileContext, pubkey: string): void {
       () => {
         // notes EOSE — initial burst complete
       },
+      { live: true },
     );
     ctx.subs.push(notesSub);
   });

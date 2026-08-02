@@ -4,7 +4,12 @@ import UnoCSS from '@unocss/vite';
 import { nip5aManifest } from '@napplet/vite-plugin';
 
 export default defineConfig({
-  plugins: [UnoCSS(), svelte(), nip5aManifest({ nappletType: 'profile', requires: ['identity', 'relay', 'inc', 'storage', 'resource', 'theme'], artifactMode: 'single-file' })],
+  plugins: [UnoCSS(), svelte(), nip5aManifest({
+    nappletType: 'profile',
+    requires: ['identity', 'relay', 'outbox', 'inc', 'storage', 'resource', 'theme'],
+    artifactMode: 'single-file',
+    archetypes: [{ slug: 'profile', convention: 'napplet:profile/open' }],
+  })],
   resolve: {
     dedupe: ['svelte'],
   },

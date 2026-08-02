@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nip19 } from 'nostr-tools';
+import * as nip19 from 'nostr-tools/nip19';
 import { profileIdentityOpenTargets, profileIdentityShareValues } from './profile-share';
 
 const PUBKEY_A = 'a'.repeat(64);

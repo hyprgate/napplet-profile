@@ -1,8 +1,9 @@
 <script lang="ts">
   // Thin adapter over the shared @hyprgate/napplet-ui note renderer — supplies profile's
   // navigation wiring (open a profile via inter-pane message).
-  import { inc as ipc, link } from '@napplet/sdk';
-  import { isCanonicalHexPubkey } from '@hyprgate/utils';
+  import { intent, link } from '@napplet/sdk';
+  import { parseIntentResult } from '@hyprgate/types';
+  import { createProfileIntentRequest, isCanonicalHexPubkey } from '@hyprgate/utils';
   import NoteContent from '@hyprgate/napplet-ui/NoteContent.svelte';
 
   interface Props {
@@ -13,9 +14,17 @@
 
   let { content, emojiTags = [], profileLabel }: Props = $props();
 
-  function openProfile(pubkey: string): void {
+  async function openProfile(pubkey: string): Promise<void> {
     if (!isCanonicalHexPubkey(pubkey)) return;
-    ipc.emit('profile:open', [], JSON.stringify({ pubkey }));
+    const request = createProfileIntentRequest({ pubkey });
+    if (!request) return;
+    try {
+      const result = parseIntentResult(await intent.invoke(request));
+      if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
+      if (!result.ok || !result.handled) return;
+    } catch {
+      // Keep the existing no-op failure behavior when navigation is unavailable.
+    }
   }
 
   // NAP-LINK: route external links through the shell-owned opener so the new

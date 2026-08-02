@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { mount as mountType, tick as tickType, unmount as unmountType } from 'svelte';
-import { nip19 } from 'nostr-tools';
+import * as nip19 from 'nostr-tools/nip19';
 import ProfileIdentityShare from './ProfileIdentityShare.svelte';
 
 const mockLinkOpen = vi.hoisted(() => vi.fn());

@@ -1,5 +1,5 @@
 import { isCanonicalHexPubkey } from '@hyprgate/utils';
-import { nip19 } from 'nostr-tools';
+import * as nip19 from 'nostr-tools/nip19';
 
 export type ProfileIdentityShareKind = 'hex' | 'npub' | 'nprofile';
 

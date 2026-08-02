@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { inc as ipc } from '@napplet/sdk';
-  import { NOTE_VIEWER_OPEN_TOPIC } from '@hyprgate/utils';
+  import { intent } from '@napplet/sdk';
+  import { parseIntentResult } from '@hyprgate/types';
+  import { createNoteViewerOpenIntentRequest } from '@hyprgate/utils';
   import {
     createProfileReplyReferenceOpenPayload,
     type ProfileReplyContextReferenceDisplay,
@@ -12,10 +13,18 @@
 
   let { reference }: Props = $props();
 
-  function openReference(): void {
+  async function openReference(): Promise<void> {
     const payload = createProfileReplyReferenceOpenPayload(reference);
     if (!payload) return;
-    ipc.emit(NOTE_VIEWER_OPEN_TOPIC, [], JSON.stringify(payload));
+    const request = createNoteViewerOpenIntentRequest(payload);
+    if (!request) return;
+    try {
+      const result = parseIntentResult(await intent.invoke(request));
+      if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
+      if (!result.ok || !result.handled) return;
+    } catch {
+      // Keep the existing no-op failure behavior when navigation is unavailable.
+    }
   }
 </script>
 

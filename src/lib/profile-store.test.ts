@@ -32,6 +32,22 @@ function makeCloseHandle(): { close: () => void } {
   return { close: vi.fn(() => {}) };
 }
 
+type RelayEventResult = { event: NostrEvent };
+
+function makeOutboxSubscriptionHandle(
+  registerEvent?: (listener: (result: RelayEventResult) => void) => void,
+): ReturnType<typeof outbox.subscribe> {
+  const handle = {
+    close: vi.fn(() => {}),
+    on: vi.fn(),
+  };
+  handle.on.mockImplementation((event: string, listener: (result: RelayEventResult) => void) => {
+    if (event === 'event') registerEvent?.(listener);
+    return handle;
+  });
+  return handle as unknown as ReturnType<typeof outbox.subscribe>;
+}
+
 /** Install window.napplet.shell with a toggleable outbox capability. */
 function installShell(supportsOutbox: boolean): void {
   (globalThis as unknown as { napplet: unknown }).napplet = {
@@ -59,8 +75,6 @@ function makeEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
     ...overrides,
   };
 }
-
-type RelayEventResult = { event: NostrEvent };
 
 function fireRelayEvent(callback: ((result: RelayEventResult) => void) | null, event: NostrEvent): void {
   callback?.({ event });
@@ -108,7 +122,7 @@ beforeEach(() => {
   installShell(false);
   // Default: subscribe returns a closeable handle
   mockSubscribe.mockReturnValue(makeCloseHandle());
-  mockOutboxSubscribe.mockReturnValue(makeCloseHandle() as unknown as ReturnType<typeof outbox.subscribe>);
+  mockOutboxSubscribe.mockReturnValue(makeOutboxSubscriptionHandle());
   mockOutboxQuery.mockResolvedValue({ events: [] });
   // Default: publish succeeds
   mockPublish.mockResolvedValue(makeEvent({ id: 'published' }));
@@ -578,10 +592,15 @@ describe('profile outbox gating', () => {
     await flush();
     await flush();
 
-    // metadata + notes go through outbox query.
+    // metadata + notes hydrate via the finite outbox query.
     const outboxFilters = mockOutboxQuery.mock.calls.map((c) => classifyFilter(c[0]));
     expect(outboxFilters).toContain('metadata');
     expect(outboxFilters).toContain('notes');
+
+    // Initial metadata and notes also remain live while NIP-65 discovery settles.
+    const streamFilters = mockOutboxSubscribe.mock.calls.map((c) => classifyFilter(c[0]));
+    expect(streamFilters).toContain('metadata');
+    expect(streamFilters).toContain('notes');
 
     // engagement + self-kind3 must NOT be on outbox
     expect(outboxFilters).not.toContain('engagement');
@@ -601,6 +620,70 @@ describe('profile outbox gating', () => {
     await flush();
     const moreFilters = mockOutboxQuery.mock.calls.map((c) => classifyFilter(c[0]));
     expect(moreFilters).toContain('notes');
+    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(2);
+  });
+
+  it('streams initial metadata and notes after an empty outbox history query', async () => {
+    installShell(true);
+
+    const listeners: {
+      metadata: ((result: RelayEventResult) => void) | null;
+      notes: ((result: RelayEventResult) => void) | null;
+    } = { metadata: null, notes: null };
+    const handles: Array<ReturnType<typeof outbox.subscribe>> = [];
+    mockOutboxSubscribe.mockImplementation((filters) => {
+      const kind = classifyFilter(filters);
+      const handle = makeOutboxSubscriptionHandle((listener) => {
+        if (kind === 'metadata') listeners.metadata = listener;
+        if (kind === 'notes') listeners.notes = listener;
+      });
+      handles.push(handle);
+      return handle;
+    });
+    mockOutboxQuery.mockResolvedValue({ events: [] });
+
+    const store = createProfileStore();
+    store.loadProfile('targetPubkey');
+    await flush();
+    await flush();
+
+    expect(store.state.metadata).toBeNull();
+    expect(store.state.notes).toEqual([]);
+    expect(listeners.metadata).not.toBeNull();
+    expect(listeners.notes).not.toBeNull();
+
+    listeners.metadata?.({
+      event: makeEvent({
+        id: 'metadata',
+        kind: 0,
+        pubkey: 'targetPubkey',
+        created_at: 10,
+        content: JSON.stringify({ name: 'D2' }),
+      }),
+    });
+    listeners.notes?.({
+      event: makeEvent({
+        id: 'late-note',
+        kind: 1,
+        pubkey: 'targetPubkey',
+        created_at: 9,
+        content: 'Arrived after the finite query.',
+      }),
+    });
+
+    expect((store.state.metadata as { name?: string })?.name).toBe('D2');
+    expect(store.state.notes.map((event) => event.id)).toEqual(['late-note']);
+
+    // Pagination stays finite: it must not leave another live stream behind.
+    store.loadMore();
+    await flush();
+    await flush();
+    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(2);
+
+    store.destroy();
+    for (const handle of handles) {
+      expect(handle.close).toHaveBeenCalledOnce();
+    }
   });
 
   it('falls back to relay.subscribe for metadata/notes/loadMore when outbox unsupported', async () => {

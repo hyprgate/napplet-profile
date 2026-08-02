@@ -2,14 +2,15 @@
   import { onDestroy } from 'svelte';
   import type { NostrEvent } from 'applesauce-core/helpers/event';
   import { format as timeago } from 'timeago.js';
-  import { inc as ipc, relay } from '@napplet/sdk';
+  import { intent, relay } from '@napplet/sdk';
   import {
-    NOTE_VIEWER_OPEN_TOPIC,
     clientTagValue,
+    createNoteViewerOpenIntentRequest,
     createNoteViewerOpenPayload,
     formatMillisatsAsSats,
     resourceImage,
   } from '@hyprgate/utils';
+  import { createIntentRequest, parseIntentResult, type IntentRequest } from '@hyprgate/types';
   import type { EngagementCounts, ReactionGroup } from '../lib/profile-store';
   import {
     customReactionInput,
@@ -101,25 +102,39 @@
     });
   }
 
-  function openNote(note: NostrEvent): void {
+  async function invoke(request: IntentRequest | null): Promise<void> {
+    if (!request) return;
+    try {
+      const result = parseIntentResult(await intent.invoke(request));
+      if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
+      if (!result.ok || !result.handled) return;
+    } catch {
+      // Keep the existing no-op failure behavior when navigation is unavailable.
+    }
+  }
+
+  async function openNote(note: NostrEvent): Promise<void> {
     const payload = createNoteViewerOpenPayload({
       target: { type: 'event', id: note.id, kind: note.kind, pubkey: note.pubkey },
       behavior: { focus: true },
       source: { napplet: 'profile' },
     });
-    if (payload) ipc.emit(NOTE_VIEWER_OPEN_TOPIC, [], JSON.stringify(payload));
+    await invoke(payload ? createNoteViewerOpenIntentRequest(payload) : null);
   }
 
-  function replyTo(note: NostrEvent): void {
-    ipc.emit('compose:open', [], JSON.stringify({
-      source: { napplet: 'profile' },
-      intent: 'reply',
-      replyTo: {
-        id: note.id,
-        pubkey: note.pubkey,
-        kind: note.kind,
-        content: note.content,
-        created_at: note.created_at,
+  async function replyTo(note: NostrEvent): Promise<void> {
+    await invoke(createIntentRequest({
+      archetype: 'composer',
+      payload: {
+        source: { napplet: 'profile' },
+        intent: 'reply',
+        replyTo: {
+          id: note.id,
+          pubkey: note.pubkey,
+          kind: note.kind,
+          content: note.content,
+          created_at: note.created_at,
+        },
       },
     }));
   }

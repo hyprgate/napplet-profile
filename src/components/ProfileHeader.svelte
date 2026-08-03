@@ -41,20 +41,16 @@
   ></div>
 
   <!-- Avatar (overlapping banner) -->
-  <div class="absolute left-4 top-[72px]">
+  <div class="absolute left-4 top-[72px] grid w-20 h-20">
+    <div class="col-start-1 row-start-1 w-20 h-20 rounded-full border-2 border-bg-base bg-bg-surface flex items-center justify-center text-accent-green text-xl font-bold font-mono">
+      {avatarFallback}
+    </div>
     {#if metadata?.picture}
       <img
         use:resourceImage={metadata.picture}
-        alt={displayName}
-        class="w-20 h-20 rounded-full border-2 border-bg-base object-cover"
-        onerror={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
-        }}
+        alt=""
+        class="col-start-1 row-start-1 w-20 h-20 rounded-full border-2 border-bg-base object-cover"
       />
-    {:else}
-      <div class="w-20 h-20 rounded-full border-2 border-bg-base bg-bg-surface flex items-center justify-center text-accent-green text-xl font-bold font-mono">
-        {avatarFallback}
-      </div>
     {/if}
   </div>
 

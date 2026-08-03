@@ -43,20 +43,16 @@
   <!-- Content -->
   <div class="flex flex-col gap-2 px-4 py-3">
     <!-- Avatar -->
-    <div class="-mt-10 mb-1">
+    <div class="-mt-10 mb-1 grid w-16 h-16">
+      <div class="col-start-1 row-start-1 w-16 h-16 rounded-full border-2 border-bg-base bg-bg-elevated flex items-center justify-center text-accent-green text-lg font-bold font-mono">
+        {avatarFallback}
+      </div>
       {#if metadata?.picture}
         <img
           use:resourceImage={metadata.picture}
-          alt={displayName}
-          class="w-16 h-16 rounded-full border-2 border-bg-base object-cover"
-          onerror={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
-          }}
+          alt=""
+          class="col-start-1 row-start-1 w-16 h-16 rounded-full border-2 border-bg-base object-cover"
         />
-      {:else}
-        <div class="w-16 h-16 rounded-full border-2 border-bg-base bg-bg-elevated flex items-center justify-center text-accent-green text-lg font-bold font-mono">
-          {avatarFallback}
-        </div>
       {/if}
     </div>
 

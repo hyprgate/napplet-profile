@@ -8,16 +8,13 @@
 
 [![CI](https://github.com/hyprgate/napplet-profile/actions/workflows/ci.yml/badge.svg)](https://github.com/hyprgate/napplet-profile/actions/workflows/ci.yml)
 
-Forkable source repository for the Hyprgate built-in napplet currently packaged as `@hyprgate/napp-profile`.
-
-This repository was split from `hyprgate/gui` and is mounted back into the parent checkout as `napplets/profile`.
-It still expects the parent workspace when built through Hyprgate because shared `@hyprgate/*` packages remain workspace dependencies.
+This app is tracked directly in the Hyprgate workspace at `napplets/profile`.
+Standalone repositories are generated read-only mirrors; make changes and run
+workspace checks in the existing Hyprgate checkout.
 
 ## Parent checkout
 
 ```bash
-git clone --recurse-submodules git@github.com:hyprgate/gui.git
-cd gui
 pnpm install --frozen-lockfile
 pnpm --filter @hyprgate/napp-profile build
 ```
@@ -36,8 +33,6 @@ the port configured in `vite.config.ts`.
 Run these checks from a Hyprgate parent checkout so workspace dependencies resolve:
 
 ```bash
-git clone --recurse-submodules git@github.com:hyprgate/gui.git
-cd gui
 pnpm install --frozen-lockfile
 pnpm --filter @hyprgate/napp-profile conformance
 pnpm --filter @hyprgate/napp-profile test
@@ -46,4 +41,15 @@ pnpm --filter @hyprgate/napp-profile build
 
 The `conformance` script builds the napplet and runs `@napplet/conformance-cli` against `dist/`. CI runs the same conformance, unit test, and build checks for every push and pull request.
 
-CI runs from the standalone napplet repository but checks out `hyprgate/gui` to resolve private `workspace:*` packages. Configure `HYPRGATE_GUI_CHECKOUT_TOKEN` with read access to `hyprgate/gui` before enabling GitHub Actions.
+Workspace dependencies resolve in the Hyprgate checkout. The mirror workflow
+rewrites workspace dependency pins for standalone source distribution.
+
+## Intent delivery
+
+The app receives `napplet:profile/open` through the host-injected
+`intent.onDelivery` subscription and validates the contract and payload before
+applying it. The binding buffers delivery until subscription; no app-specific
+INC readiness topic is required. Existing persisted/default startup behavior remains the fallback when no valid intent arrives.
+
+The shell target-controller migration is still in progress; see
+[package migration status](../../docs/napplet-package-migration.md).

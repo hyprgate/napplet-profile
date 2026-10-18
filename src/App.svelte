@@ -1,21 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { inc as ipc, identity, relay, type Subscription } from '@napplet/sdk';
+  import { identity, relay, intent, type Subscription } from '@napplet/sdk';
   import {
     KIND_METADATA,
-    IDENTITY_CHANGED_TOPIC,
-    LEGACY_AUTH_IDENTITY_CHANGED_TOPIC,
-    PROFILE_READY_TOPIC,
     isCanonicalHexPubkey,
     parseNoteContent,
-    parseIdentityChangedPayload,
   } from '@hyprgate/utils';
   import type { EngagementCounts, ProfileContent } from './lib/profile-store';
   import type { NostrEvent } from '@hyprgate/types';
   import { createProfileStore } from './lib/profile-store';
   import { createEmojiSetStore, type EmojiOption } from './lib/emoji-sets';
   import { createCurrentUserPubkeyLoader, resolveInitialProfileTarget } from './lib/profile-startup';
-  import { profileTargetFromIncEvent, type IncEvent } from './profile-intent-delivery.js';
+  import { profileTargetFromIntentDelivery, type IntentDelivery } from './profile-intent-delivery.js';
   import ProfileLayout from './components/ProfileLayout.svelte';
 
   // ── Reactive state bridged from the profile store ───────────────────────────
@@ -37,7 +33,7 @@
   const loadingReferencedPubkeys = new Set<string>();
   const referencedProfileSubscriptions = new Set<Subscription>();
 
-  // Race condition guard: buffer profile:open events until component is mounted
+  // Race condition guard: buffer intent deliveries until component is mounted
   let ready = $state(false);
   let pendingPubkey = $state<string | null>(null);
 
@@ -82,8 +78,8 @@
   // Use onMount (not $effect) to avoid Svelte 5 reactivity loops —
   // on() callbacks write to $state which must not re-trigger the subscription setup.
   onMount(() => {
-    const subProfileOpen = ipc.on('profile:open', (event: IncEvent) => {
-      const targetPubkey = profileTargetFromIncEvent(event);
+    const subProfileOpen = intent.onDelivery((event: IntentDelivery) => {
+      const targetPubkey = profileTargetFromIntentDelivery(event);
       if (!targetPubkey) return;
       if (ready) {
         loadTargetProfile(targetPubkey);
@@ -91,26 +87,22 @@
         pendingPubkey = targetPubkey;
       }
     });
-    ipc.emit(PROFILE_READY_TOPIC);
 
-    const handleIdentityChanged = (event: IncEvent) => {
-      const identityChange = parseIdentityChangedPayload(event.payload);
-      if (isCanonicalHexPubkey(identityChange?.pubkey)) {
-        initReactionPalette(identityChange.pubkey);
+    const handleIdentityChanged = (pubkey: string) => {
+      if (isCanonicalHexPubkey(pubkey)) {
+        initReactionPalette(pubkey);
         if (!store.state.pubkey) {
-          loadTargetProfile(identityChange.pubkey);
+          loadTargetProfile(pubkey);
         } else {
           loadTargetProfile(store.state.pubkey);
         }
       }
     };
-    const subIdentity = ipc.on(IDENTITY_CHANGED_TOPIC, handleIdentityChanged);
-    const legacySubIdentity = ipc.on(LEGACY_AUTH_IDENTITY_CHANGED_TOPIC, handleIdentityChanged);
+    const subIdentity = identity.onChanged(handleIdentityChanged);
 
     return () => {
       subProfileOpen.close();
       subIdentity.close();
-      legacySubIdentity.close();
     };
   });
 

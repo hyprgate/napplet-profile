@@ -18,6 +18,7 @@ const mockLinkOpen = vi.hoisted(() => vi.fn());
 vi.mock('@napplet/sdk', () => ({
   inc: { emit: vi.fn() },
   intent: { invoke: mockIntentInvoke },
+  intentInvoke: mockIntentInvoke,
   link: { open: mockLinkOpen },
   relay: { publish: vi.fn().mockResolvedValue({ id: 'reaction' }) },
 }));
@@ -63,12 +64,12 @@ function clickButton(label: string): void {
 describe('Profile canonical navigation', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
-    mockIntentInvoke.mockImplementation(async (request: { archetype: string; action?: string }) => ({
+    mockIntentInvoke.mockImplementation(async (uri: string) => ({
       ok: true,
-      archetype: request.archetype,
-      action: request.action ?? 'open',
-      handled: true,
-      handler: request.archetype,
+      archetype: uri.slice('napplet:'.length).split('/')[0],
+      action: uri.split('/')[1],
+      convention: uri,
+      handler: `nip5d:35129:${'a'.repeat(64)}:test-handler`,
     }));
     mockLinkOpen.mockResolvedValue({ status: 'opened' });
     vi.stubGlobal('IntersectionObserver', class {
@@ -99,7 +100,8 @@ describe('Profile canonical navigation', () => {
     await flushAsync();
 
     expect(mockIntentInvoke).toHaveBeenCalledTimes(1);
-    expect(mockIntentInvoke).toHaveBeenCalledWith({ archetype: 'profile', payload: { pubkey: PUBKEY } });
+    expect(mockIntentInvoke).toHaveBeenCalledWith('napplet:profile/open', {
+      payload: { pubkey: PUBKEY } });
   });
 
   it('opens an embedded note through a canonical note request', async () => {
@@ -116,8 +118,7 @@ describe('Profile canonical navigation', () => {
     await flushAsync();
 
     expect(mockIntentInvoke).toHaveBeenCalledTimes(1);
-    expect(mockIntentInvoke).toHaveBeenCalledWith(expect.objectContaining({
-      archetype: 'note',
+    expect(mockIntentInvoke).toHaveBeenCalledWith('napplet:note/open', expect.objectContaining({
       payload: expect.objectContaining({ target: { type: 'event', id: EVENT_ID, nip19: `nostr:${note}` } }),
     }));
   });
@@ -141,8 +142,7 @@ describe('Profile canonical navigation', () => {
     await flushAsync();
 
     expect(mockIntentInvoke).toHaveBeenCalledTimes(1);
-    expect(mockIntentInvoke).toHaveBeenCalledWith(expect.objectContaining({
-      archetype: 'note',
+    expect(mockIntentInvoke).toHaveBeenCalledWith('napplet:note/open', expect.objectContaining({
       payload: expect.objectContaining({
         target: expect.objectContaining({ type: 'event', id: EVENT_ID }),
       }),
@@ -171,14 +171,12 @@ describe('Profile canonical navigation', () => {
     clickButton('Reply');
     await flushAsync();
 
-    expect(mockIntentInvoke).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      archetype: 'note',
+    expect(mockIntentInvoke).toHaveBeenNthCalledWith(1, 'napplet:note/open', expect.objectContaining({
       payload: expect.objectContaining({
         target: expect.objectContaining({ type: 'event', id: EVENT_ID }),
       }),
     }));
-    expect(mockIntentInvoke).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      archetype: 'composer',
+    expect(mockIntentInvoke).toHaveBeenNthCalledWith(2, 'napplet:composer/open', expect.objectContaining({
       payload: expect.objectContaining({ replyTo: expect.objectContaining({ id: EVENT_ID }) }),
     }));
   });
@@ -186,17 +184,19 @@ describe('Profile canonical navigation', () => {
   it('retains the shell-owned provider link policy for resource navigation', async () => {
     component = mount(ProfileResourceEmbed, {
       target: document.body,
-      props: { source: 'https://www.youtube.com/watch?v=abc123', mediaType: 'video' },
+      props: { source: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', mediaType: 'video' },
     }) as Record<string, never>;
     await flushAsync();
 
     const providerLink = document.querySelector<HTMLAnchorElement>('a.provider-card');
     expect(providerLink).not.toBeNull();
-    providerLink?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    providerLink?.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
     await flushAsync();
 
     expect(mockLinkOpen).toHaveBeenCalledTimes(1);
-    expect(mockLinkOpen).toHaveBeenCalledWith('https://www.youtube.com/watch?v=abc123');
+    expect(mockLinkOpen).toHaveBeenCalledWith('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     expect(mockIntentInvoke).not.toHaveBeenCalled();
   });
 

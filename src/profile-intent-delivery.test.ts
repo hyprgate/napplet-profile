@@ -1,25 +1,32 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
-import { profileTargetFromIncEvent, type IncEvent } from './profile-intent-delivery.js';
+import { profileTargetFromIntentDelivery, type IntentDelivery } from './profile-intent-delivery.js';
 
 const pubkey = 'a'.repeat(64);
-function event(payload?: unknown): IncEvent {
+function event(payload?: unknown): IntentDelivery {
   return {
-    topic: 'profile:open',
+    archetype: 'profile', action: 'open', convention: 'napplet:profile/open',
     sender: 'hyprgate-shell',
     ...(arguments.length > 0 ? { payload } : {}),
   };
 }
 
-describe('profile canonical INC delivery adapter', () => {
-  it.each(['warm direct', 'cold post-ready replay'])('extracts one target for a valid %s IncEvent', (delivery) => {
+describe('profile canonical INTENT delivery adapter', () => {
+  it.each(['warm direct', 'cold buffered delivery'])('extracts one target for a valid %s IntentDelivery', (delivery) => {
     expect(delivery).toBeTruthy();
-    expect(profileTargetFromIncEvent(event({ pubkey }))).toBe(pubkey);
+    expect(profileTargetFromIntentDelivery(event({ pubkey }))).toBe(pubkey);
+  });
+
+  it('rejects another role, action or convention even with a valid payload', () => {
+    const valid = event({ pubkey });
+    expect(profileTargetFromIntentDelivery({ ...valid, archetype: 'unrelated' })).toBeNull();
+    expect(profileTargetFromIntentDelivery({ ...valid, action: 'edit' })).toBeNull();
+    expect(profileTargetFromIntentDelivery({ ...valid, convention: 'napplet:unrelated/open' })).toBeNull();
   });
 
   it('rejects absent and malformed payloads before the App state transition', () => {
-    expect(profileTargetFromIncEvent(event())).toBeNull();
-    expect(profileTargetFromIncEvent(event({ pubkey: 'not-a-pubkey' }))).toBeNull();
+    expect(profileTargetFromIntentDelivery(event())).toBeNull();
+    expect(profileTargetFromIntentDelivery(event({ pubkey: 'not-a-pubkey' }))).toBeNull();
   });
 });

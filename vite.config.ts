@@ -14,7 +14,7 @@ export default defineConfig({
     archetypes: [{ slug: 'profile', convention: 'napplet:profile/open' }],
   })],
   resolve: {
-    dedupe: ['svelte'],
+    dedupe: ['svelte', 'nostr-tools'],
   },
   server: {
     port: 5175,

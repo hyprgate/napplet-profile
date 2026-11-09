@@ -12,6 +12,8 @@
   import { createEmojiSetStore, type EmojiOption } from './lib/emoji-sets';
   import { createCurrentUserPubkeyLoader, resolveInitialProfileTarget } from './lib/profile-startup';
   import { profileTargetFromIntentDelivery, type IntentDelivery } from './profile-intent-delivery.js';
+  import { profileDisplayName } from './lib/profile-identity';
+  import { profileReplyContextForNote, profileReplyTargetPubkey } from './lib/profile-reply-context';
   import ProfileLayout from './components/ProfileLayout.svelte';
 
   // ── Reactive state bridged from the profile store ───────────────────────────
@@ -19,9 +21,12 @@
   let notes = $state<NostrEvent[]>([]);
   let engagement = $state<Map<string, EngagementCounts>>(new Map());
   let engagementVersion = $state(0);
-  let followingCount = $state(0);
+  let followingCount = $state<number | null>(null);
   let isFollowing = $state(false);
   let isFollowPending = $state(false);
+  let isOwnProfile = $state(false);
+  let followError = $state<string | null>(null);
+  let notesLoading = $state(false);
   let showReplies = $state(false);
   let loading = $state(false);
   let error = $state<string | null>(null);
@@ -49,6 +54,9 @@
     followingCount = s.followingCount;
     isFollowing = s.isFollowing;
     isFollowPending = s.isFollowPending;
+    isOwnProfile = s.isOwnProfile;
+    followError = s.followError;
+    notesLoading = s.notesLoading;
     showReplies = s.showReplies;
     loading = s.loading;
     error = s.error;
@@ -161,17 +169,12 @@
     }
   }
 
-  function shortProfileLabel(pubkey: string): string {
-    return pubkey.length > 12 ? `${pubkey.slice(0, 8)}...` : pubkey;
-  }
-
   function profileLabel(pubkey: string): string {
     referencedProfileVersion;
-    const referencedProfile = referencedProfiles.get(pubkey);
-    return referencedProfile?.display_name
-      ?? referencedProfile?.name
-      ?? (pubkey === profilePubkey ? metadata?.display_name ?? metadata?.name : undefined)
-      ?? shortProfileLabel(pubkey);
+    return profileDisplayName(
+      referencedProfiles.get(pubkey) ?? (pubkey === profilePubkey ? metadata : null),
+      pubkey,
+    );
   }
 
   function collectReferencedProfilePubkeys(): string[] {
@@ -180,6 +183,9 @@
       for (const block of parseNoteContent(note.content)) {
         if (block.type === 'profile') pubkeys.add(block.value);
       }
+      const replyContext = profileReplyContextForNote(note);
+      const replyTarget = replyContext ? profileReplyTargetPubkey(note, replyContext) : null;
+      if (replyTarget) pubkeys.add(replyTarget);
     }
     if (profilePubkey) pubkeys.add(profilePubkey);
     return [...pubkeys];
@@ -206,9 +212,11 @@
     let subscription: Subscription | null = null;
     subscription = relay.subscribe(
       [{ kinds: [KIND_METADATA], authors: missingPubkeys, limit: Math.max(missingPubkeys.length, 20) }],
-      (profileEvent) => {
+      (result) => {
+        // relay.subscribe hands over `{ event }`, same as the store's subscriptions.
+        const profileEvent = result.event as NostrEvent;
         if (!missingPubkeys.includes(profileEvent.pubkey)) return;
-        const parsed = parseReferencedProfileEvent(profileEvent as NostrEvent);
+        const parsed = parseReferencedProfileEvent(profileEvent);
         if (!parsed) return;
         referencedProfiles.set(profileEvent.pubkey, parsed);
         referencedProfileVersion++;
@@ -262,6 +270,10 @@
       {followingCount}
       {isFollowing}
       {isFollowPending}
+      {isOwnProfile}
+      {followError}
+      {notesLoading}
+      metadataLoading={loading}
       {engagement}
       {engagementVersion}
       {reactionOptions}

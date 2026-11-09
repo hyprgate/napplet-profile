@@ -44,6 +44,15 @@ The `conformance` script builds the napplet and runs `@napplet/conformance-cli` 
 Workspace dependencies resolve in the Hyprgate checkout. The mirror workflow
 rewrites workspace dependency pins for standalone source distribution.
 
+## What the page shows
+
+The person comes first: banner, avatar, name, bio, website, Lightning address and
+how many people they follow, read from their own contact list. A follower count
+isn't shown, since relays can't give a trustworthy one without a large kind-3 scan.
+The npub and a copy button sit under that, and hex, nprofile, QR codes and Open in
+are behind Share. Follow is hidden on your own profile. A NIP-05 address is shown
+as the profile states it, because the sandbox can't fetch `nostr.json` to verify it.
+
 ## Intent delivery
 
 The app receives `napplet:profile/open` through the host-injected

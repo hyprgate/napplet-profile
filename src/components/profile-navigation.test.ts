@@ -14,13 +14,14 @@ import ProfileResourceEmbed from './ProfileResourceEmbed.svelte';
 
 const mockIntentInvoke = vi.hoisted(() => vi.fn());
 const mockLinkOpen = vi.hoisted(() => vi.fn());
+const mockRelayPublish = vi.hoisted(() => vi.fn());
 
 vi.mock('@napplet/sdk', () => ({
   inc: { emit: vi.fn() },
   intent: { invoke: mockIntentInvoke },
   intentInvoke: mockIntentInvoke,
   link: { open: mockLinkOpen },
-  relay: { publish: vi.fn().mockResolvedValue({ id: 'reaction' }) },
+  relay: { publish: mockRelayPublish },
 }));
 
 vi.mock('svelte', () => ({ onDestroy: vi.fn() }));
@@ -72,6 +73,8 @@ describe('Profile canonical navigation', () => {
       handler: `nip5d:35129:${'a'.repeat(64)}:test-handler`,
     }));
     mockLinkOpen.mockResolvedValue({ status: 'opened' });
+    mockRelayPublish.mockReset();
+    mockRelayPublish.mockResolvedValue({ id: 'reaction' });
     vi.stubGlobal('IntersectionObserver', class {
       observe(): void {}
       disconnect(): void {}
@@ -84,6 +87,37 @@ describe('Profile canonical navigation', () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     document.body.innerHTML = '';
+  });
+
+  it('sends a custom reaction from Enter and from the Send button, without a form', async () => {
+    component = mount(ProfileNotes, {
+      target: document.body,
+      props: {
+        notes: [EVENT],
+        engagement: new Map(),
+        engagementVersion: 0,
+        reactionOptions: [],
+        showReplies: false,
+        profileLabel: (pubkey: string) => pubkey,
+        onloadmore: () => {},
+        onshowreplieschange: () => {},
+      },
+    }) as Record<string, never>;
+    await flushAsync();
+    for (const send of ['enter', 'click'] as const) {
+      clickButton('React');
+      await flushAsync();
+      expect(document.querySelector('.reaction-menu form')).toBeNull();
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="Custom reaction"]')!;
+      input.value = '🌊';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await flushAsync();
+      if (send === 'enter') input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      else clickButton('Send');
+      await vi.waitFor(() => expect(document.querySelector('.reaction-menu')).toBeNull());
+    }
+    expect(mockRelayPublish).toHaveBeenCalledTimes(2);
+    expect(mockRelayPublish.mock.calls[1]?.[0]).toMatchObject({ kind: 7, content: '🌊' });
   });
 
   it('keeps a metadata-present profile mention visible and invokes its archetype-led request once', async () => {

@@ -13,7 +13,7 @@
 {#if isPending}
   <button
     disabled
-    class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-mono border border-border-dim text-text-muted cursor-not-allowed opacity-60"
+    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono border border-border-dim text-text-muted cursor-not-allowed opacity-60"
     aria-label="Loading..."
   >
     <span class="w-3 h-3 border border-text-muted border-t-transparent rounded-full animate-spin"></span>
@@ -24,8 +24,10 @@
     {onclick}
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
+    onfocus={() => (hovered = true)}
+    onblur={() => (hovered = false)}
     class={[
-      'inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-mono border transition-colors',
+      'inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono border transition-colors',
       hovered
         ? 'border-accent-red text-accent-red hover:bg-accent-red/10'
         : 'border-accent-green text-accent-green',
@@ -37,7 +39,7 @@
 {:else}
   <button
     {onclick}
-    class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-mono bg-accent-green text-bg-base hover:bg-accent-green/80 transition-colors"
+    class="inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-mono bg-accent-green text-bg-base hover:bg-accent-green/80 transition-colors"
     aria-label="Follow"
   >
     Follow

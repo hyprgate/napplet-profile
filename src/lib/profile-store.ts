@@ -35,11 +35,15 @@ export interface ProfileState {
   notes: NostrEvent[];
   engagement: Map<string, EngagementCounts>;
   engagementVersion: number;
-  followingCount: number;
+  /** How many people this profile follows. Null until their list is found. */
+  followingCount: number | null;
   isFollowing: boolean;
+  isOwnProfile: boolean;
   isFollowPending: boolean;
+  followError: string | null;
   showReplies: boolean;
   loading: boolean;
+  notesLoading: boolean;
   error: string | null;
 }
 

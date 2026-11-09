@@ -1,14 +1,17 @@
 <script lang="ts">
   import type { ProfileContent } from 'applesauce-core/helpers/profile';
-  import { pubkeyColorStyle, resourceBackgroundImage, resourceImage } from '@hyprgate/utils';
+  import { resourceBackgroundImage, resourceImage } from '@hyprgate/utils';
   import FollowButton from './FollowButton.svelte';
-  import ProfileIdentityShare from './ProfileIdentityShare.svelte';
+  import ProfileInfo from './ProfileInfo.svelte';
 
   interface Props {
     metadata: ProfileContent | null;
-    followingCount: number;
+    followingCount: number | null;
     isFollowing: boolean;
     isFollowPending: boolean;
+    isOwnProfile: boolean;
+    followError: string | null;
+    metadataLoading: boolean;
     onfollowclick: () => void;
     profilePubkey?: string;
   }
@@ -18,77 +21,45 @@
     followingCount,
     isFollowing,
     isFollowPending,
+    isOwnProfile,
+    followError,
+    metadataLoading,
     onfollowclick,
     profilePubkey = '',
   }: Props = $props();
 
-  const displayName = $derived.by(() => {
-    if (!metadata) return profilePubkey.slice(0, 8) || 'Unknown';
-    return metadata.display_name || metadata.name || profilePubkey.slice(0, 8) || 'Unknown';
-  });
-
-  const avatarFallback = $derived.by(() => {
-    const name = metadata?.display_name || metadata?.name || profilePubkey || '?';
-    return name.slice(0, 2).toUpperCase();
-  });
+  const avatarFallback = $derived(
+    (metadata?.display_name || metadata?.name || profilePubkey || '?').slice(0, 2).toUpperCase(),
+  );
 </script>
 
-<aside class="w-64 h-full flex flex-col bg-bg-surface border-r border-border-dim overflow-y-auto shrink-0">
-  <!-- Banner strip -->
+<aside class="w-80 h-full flex flex-col bg-bg-surface border-r border-border-dim overflow-y-auto shrink-0">
   <div
-    class="w-full h-20 bg-gradient-to-r from-accent-green/20 to-accent-cyan/20 shrink-0 overflow-hidden"
+    class="w-full h-28 bg-gradient-to-r from-accent-green/20 to-accent-cyan/20 shrink-0 overflow-hidden"
     use:resourceBackgroundImage={metadata?.banner}
   ></div>
 
-  <!-- Content -->
-  <div class="flex flex-col gap-2 px-4 py-3">
-    <!-- Avatar -->
-    <div class="-mt-10 mb-1 grid w-16 h-16">
-      <div class="col-start-1 row-start-1 w-16 h-16 rounded-full border-2 border-bg-base bg-bg-elevated flex items-center justify-center text-accent-green text-lg font-bold font-mono">
-        {avatarFallback}
+  <div class="flex flex-col gap-2 px-4 pb-4">
+    <div class="flex items-end justify-between gap-3 -mt-9">
+      <div class="grid w-18 h-18 shrink-0">
+        <div class="col-start-1 row-start-1 w-18 h-18 rounded-full border-2 border-bg-surface bg-bg-elevated flex items-center justify-center text-accent-green text-lg font-bold font-mono">
+          {avatarFallback}
+        </div>
+        {#if metadata?.picture}
+          <img
+            use:resourceImage={metadata.picture}
+            alt=""
+            class="col-start-1 row-start-1 w-18 h-18 rounded-full border-2 border-bg-surface object-cover"
+          />
+        {/if}
       </div>
-      {#if metadata?.picture}
-        <img
-          use:resourceImage={metadata.picture}
-          alt=""
-          class="col-start-1 row-start-1 w-16 h-16 rounded-full border-2 border-bg-base object-cover"
-        />
+
+      {#if !isOwnProfile}
+        <FollowButton {isFollowing} isPending={isFollowPending} onclick={onfollowclick} />
       {/if}
     </div>
 
-    <!-- Name -->
-    <h2 class="text-base font-bold font-mono leading-tight" style={pubkeyColorStyle(profilePubkey)}>{displayName}</h2>
-
-    <!-- NIP-05 -->
-    {#if metadata?.nip05}
-      <div class="flex items-center gap-1">
-        <svg class="w-3 h-3 text-accent-cyan shrink-0" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-        </svg>
-        <span class="text-xs text-accent-cyan font-mono truncate">{metadata.nip05}</span>
-      </div>
-    {/if}
-
-    <!-- Bio -->
-    {#if metadata?.about}
-      <p class="text-xs text-text-secondary font-mono line-clamp-4">{metadata.about}</p>
-    {/if}
-
-    <!-- Stats -->
-    <div class="flex flex-col gap-0.5 text-xs text-text-muted font-mono">
-      <span><span class="text-text-primary font-medium">{followingCount}</span> following</span>
-      <span><span class="text-text-primary font-medium">--</span> followers</span>
-    </div>
-
-    <ProfileIdentityShare {profilePubkey} />
-
-    <!-- Follow button -->
-    <div class="mt-1">
-      <FollowButton
-        {isFollowing}
-        isPending={isFollowPending}
-        onclick={onfollowclick}
-      />
-    </div>
+    {#if followError}<p class="text-xs text-accent-red m-0" role="status">{followError}</p>{/if}
+    <ProfileInfo {metadata} {followingCount} {isOwnProfile} {profilePubkey} {metadataLoading} />
   </div>
 </aside>

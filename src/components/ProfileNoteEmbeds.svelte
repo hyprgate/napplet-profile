@@ -9,13 +9,15 @@
     extractNoteContentEmbeds,
     pubkeyColorStyle,
   } from '@hyprgate/utils';
+  import { shortNpub } from '../lib/profile-identity';
   import ProfileResourceEmbed from './ProfileResourceEmbed.svelte';
 
   interface Props {
     content: string;
+    profileLabel?: (pubkey: string) => string;
   }
 
-  let { content }: Props = $props();
+  let { content, profileLabel }: Props = $props();
   let embeds = $derived(extractNoteContentEmbeds(content, 6, { includeImageUrls: false, includeResources: false }));
 
   async function invoke(request: ReturnType<typeof createProfileIntentRequest> | ReturnType<typeof createNoteViewerOpenIntentRequest>): Promise<void> {
@@ -67,7 +69,7 @@
       {#if embed.type === 'profile'}
         <button type="button" class="profile-embed" onclick={() => openProfile(embed.value)}>
           <span class="label">profile</span>
-          <span class="value" style={pubkeyColorStyle(embed.value)}>{embed.value.slice(0, 12)}...</span>
+          <span class="value" style={pubkeyColorStyle(embed.value)}>{profileLabel?.(embed.value) ?? shortNpub(embed.value)}</span>
         </button>
       {:else if embed.type === 'event'}
         <button type="button" class="reference-embed" onclick={() => openEvent(embed.value, embed.source)}>

@@ -30,7 +30,7 @@ export function profileReplyContextForNote(event: Pick<NostrEvent, 'kind' | 'tag
     const parent = eventReferenceDisplay(reply.parent);
     const root = eventReferenceDisplay(reply.root);
     return {
-      label: reply.source === 'marked' ? 'kind 1 reply' : 'kind 1 reply (legacy tags)',
+      label: 'Reply',
       parent,
       root: referenceKey(root.reference) !== referenceKey(parent.reference) ? root : null,
     };
@@ -39,10 +39,24 @@ export function profileReplyContextForNote(event: Pick<NostrEvent, 'kind' | 'tag
   const parent = targetReferenceDisplay(reply.parent, reply.parentKind, reply.parentPubkey);
   const root = targetReferenceDisplay(reply.root, reply.rootKind, reply.rootPubkey);
   return {
-    label: 'kind 1111 reply',
+    label: 'Comment',
     parent,
     root: referenceKey(root.reference) !== referenceKey(parent.reference) ? root : null,
   };
+}
+
+/**
+ * Who the reply answers: the author hint on the parent reference, else the only
+ * `p` tag. Several `p` tags don't say which one wrote the parent, so no guess.
+ */
+export function profileReplyTargetPubkey(
+  event: Pick<NostrEvent, 'tags'>,
+  context: ProfileReplyContextDisplay,
+): string | null {
+  const hinted = context.parent.target?.pubkey;
+  if (hinted) return hinted;
+  const mentioned = new Set(event.tags.filter((tag) => tag[0] === 'p' && tag[1]).map((tag) => tag[1]));
+  return mentioned.size === 1 ? [...mentioned][0] ?? null : null;
 }
 
 export function createProfileReplyReferenceOpenPayload(

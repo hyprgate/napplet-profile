@@ -75,10 +75,16 @@ describe('ProfileIdentityShare', () => {
     }) as Record<string, never>;
     await flushAsync();
 
-    buttonByText('npub').click();
+    buttonByText('Copy npub').click();
     await flushAsync();
     expect(writeText).toHaveBeenCalledWith(npub);
     expect(document.body.textContent).toContain('npub copied');
+
+    buttonByText('Share').click();
+    await flushAsync();
+    buttonByText('hex').click();
+    await flushAsync();
+    expect(writeText).toHaveBeenLastCalledWith(PUBKEY);
 
     buttonByText('Open in').click();
     await flushAsync();
@@ -88,7 +94,7 @@ describe('ProfileIdentityShare', () => {
     expect(mockLinkOpen).toHaveBeenCalledWith(`https://njump.to/${npub}`);
   });
 
-  it('renders QR codes for the selected identity form', async () => {
+  it('keeps QR codes and other key formats behind Share, starting from the npub', async () => {
     const npub = nip19.npubEncode(PUBKEY);
     component = mount(ProfileIdentityShare, {
       target: document.body,
@@ -96,7 +102,10 @@ describe('ProfileIdentityShare', () => {
     }) as Record<string, never>;
     await flushAsync();
 
-    buttonByText('QR npub').click();
+    expect(document.querySelector('[data-testid="profile-identity-qr"]')).toBeNull();
+    expect(mockQrToDataUrl).not.toHaveBeenCalled();
+
+    buttonByText('Share').click();
     await flushAsync();
 
     expect(mockQrToDataUrl).toHaveBeenLastCalledWith(
@@ -106,6 +115,10 @@ describe('ProfileIdentityShare', () => {
     const image = document.querySelector<HTMLImageElement>('img[alt="npub QR code"]');
     expect(image?.src).toBe('data:image/png;base64,ZmFrZQ==');
     expect(document.querySelector('[data-testid="profile-identity-qr"]')?.textContent).toContain(npub);
+
+    buttonByText('QR hex').click();
+    await flushAsync();
+    expect(mockQrToDataUrl).toHaveBeenLastCalledWith(PUBKEY, expect.anything());
   });
 
   it('does not render stale controls for an invalid profile target', async () => {

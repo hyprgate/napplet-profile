@@ -109,11 +109,14 @@ export function createProfileContext(notify: () => void): ProfileContext {
       notes: [],
       engagement: new Map(),
       engagementVersion: 0,
-      followingCount: 0,
+      followingCount: null,
       isFollowing: false,
+      isOwnProfile: false,
       isFollowPending: false,
+      followError: null,
       showReplies: false,
       loading: false,
+      notesLoading: false,
       error: null,
     },
     notify,
@@ -320,22 +323,41 @@ function subscribeMetadata(ctx: ProfileContext, pubkey: string, useOutbox: boole
   ctx.subs.push(metaSub);
 }
 
+/** The viewer's own contact list says whether they follow the person on screen. */
 function subscribeFollowState(ctx: ProfileContext, pubkey: string): void {
   identity
     .getPublicKey()
-    .then((selfPubkey: string) =>
-      collectOnEose({ kinds: [3], authors: [selfPubkey] }).then((events) => {
-        if (events.length === 0) return;
+    .then((selfPubkey: string) => {
+      if (ctx.state.pubkey !== pubkey) return undefined;
+      ctx.state.isOwnProfile = selfPubkey === pubkey;
+      ctx.notify();
+      return collectOnEose({ kinds: [3], authors: [selfPubkey] }).then((events) => {
+        if (ctx.state.pubkey !== pubkey || events.length === 0) return;
         const latest = events.reduce((a, b) => (b.created_at > a.created_at ? b : a));
-        const pTags = latest.tags.filter((t) => t[0] === 'p' && t[1]);
-        ctx.state.followingCount = pTags.length;
-        ctx.state.isFollowing = pTags.some((t) => t[1] === pubkey);
+        ctx.state.isFollowing = latest.tags.some((t) => t[0] === 'p' && t[1] === pubkey);
         ctx.notify();
-      }),
-    )
+      });
+    })
     .catch(() => {
       // identity not available — skip follow state
     });
+}
+
+/** "Following" belongs to the profile on screen, so it reads that person's own list. */
+function subscribeFollowingCount(ctx: ProfileContext, pubkey: string, useOutbox: boolean): void {
+  let newestList = 0;
+  ctx.subs.push(subscribeAuthor(
+    useOutbox,
+    { kinds: [3], authors: [pubkey] },
+    (event) => {
+      if (ctx.state.pubkey !== pubkey || event.pubkey !== pubkey || event.created_at < newestList) return;
+      newestList = event.created_at;
+      ctx.state.followingCount = new Set(event.tags.filter((t) => t[0] === 'p' && t[1]).map((t) => t[1])).size;
+      ctx.notify();
+    },
+    () => {},
+    { live: true },
+  ));
 }
 
 export function loadProfile(ctx: ProfileContext, pubkey: string): void {
@@ -348,7 +370,10 @@ export function loadProfile(ctx: ProfileContext, pubkey: string): void {
   ctx.state.notes = [];
   resetEngagement(ctx);
   ctx.state.isFollowing = false;
-  ctx.state.followingCount = 0;
+  ctx.state.isOwnProfile = false;
+  ctx.state.followError = null;
+  ctx.state.followingCount = null;
+  ctx.state.notesLoading = true;
   ctx.notify();
 
   // Resolve the outbox gate once for this load, then issue the author-addressed
@@ -358,13 +383,16 @@ export function loadProfile(ctx: ProfileContext, pubkey: string): void {
     if (ctx.state.pubkey !== pubkey) return;
 
     subscribeMetadata(ctx, pubkey, useOutbox);
+    subscribeFollowingCount(ctx, pubkey, useOutbox);
 
     const notesSub = subscribeAuthor(
       useOutbox,
       noteFilter(ctx, pubkey),
       (event) => addNote(ctx, event),
       () => {
-        // notes EOSE — initial burst complete
+        if (ctx.state.pubkey !== pubkey) return;
+        ctx.state.notesLoading = false;
+        ctx.notify();
       },
       { live: true },
     );
@@ -406,6 +434,7 @@ export function followUser(ctx: ProfileContext): void {
   if (!ctx.state.pubkey || ctx.state.isFollowPending) return;
   const targetPubkey = ctx.state.pubkey;
   ctx.state.isFollowPending = true;
+  ctx.state.followError = null;
   ctx.notify();
 
   publishContactListUpdate((existingTags) =>
@@ -418,8 +447,11 @@ export function followUser(ctx: ProfileContext): void {
       ctx.state.isFollowPending = false;
       ctx.notify();
     })
-    .catch(() => {
+    .catch((err: unknown) => {
       ctx.state.isFollowPending = false;
+      ctx.state.followError = err instanceof Error && err.message
+        ? `Couldn't update your follow list: ${err.message}`
+        : "Couldn't update your follow list.";
       ctx.notify();
     });
 }
@@ -428,6 +460,7 @@ export function unfollowUser(ctx: ProfileContext): void {
   if (!ctx.state.pubkey || ctx.state.isFollowPending) return;
   const targetPubkey = ctx.state.pubkey;
   ctx.state.isFollowPending = true;
+  ctx.state.followError = null;
   ctx.notify();
 
   publishContactListUpdate((existingTags) =>
@@ -438,8 +471,11 @@ export function unfollowUser(ctx: ProfileContext): void {
       ctx.state.isFollowPending = false;
       ctx.notify();
     })
-    .catch(() => {
+    .catch((err: unknown) => {
       ctx.state.isFollowPending = false;
+      ctx.state.followError = err instanceof Error && err.message
+        ? `Couldn't update your follow list: ${err.message}`
+        : "Couldn't update your follow list.";
       ctx.notify();
     });
 }

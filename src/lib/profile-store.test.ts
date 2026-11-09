@@ -390,7 +390,73 @@ describe('createProfileStore', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(store.state.isFollowing).toBe(true);
-    expect(store.state.followingCount).toBe(2);
+  });
+
+  it('counts who the profile follows from their own list, not the viewer\'s', async () => {
+    const contactList = (pubkey: string, tags: string[][]): NostrEvent => ({
+      id: `contacts-${pubkey}`, kind: 3, content: '', pubkey, created_at: 2000000, tags, sig: 'sig',
+    });
+    const lists: Record<string, NostrEvent> = {
+      deadbeef: contactList('deadbeef', [['p', 'a'], ['p', 'b'], ['p', 'c'], ['p', 'targetPubkey']]),
+      targetPubkey: contactList('targetPubkey', [['p', 'a'], ['p', 'a']]),
+    };
+    mockSubscribe.mockImplementation((filters, onEvent, onEose) => {
+      const f = Array.isArray(filters) ? filters[0] : filters;
+      const list = f?.kinds?.includes(3) ? lists[f.authors?.[0] ?? ''] : undefined;
+      if (list) {
+        queueMicrotask(() => {
+          fireRelayEvent(onEvent ?? null, list);
+          onEose?.();
+        });
+      }
+      return makeCloseHandle();
+    });
+
+    const store = createProfileStore();
+    store.loadProfile('targetPubkey');
+    expect(store.state.followingCount).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(store.state.isFollowing).toBe(true);
+    expect(store.state.followingCount).toBe(1);
+    expect(store.state.isOwnProfile).toBe(false);
+  });
+
+  it('knows when the profile on screen is the viewer', async () => {
+    mockSubscribe.mockReturnValue(makeCloseHandle());
+    const store = createProfileStore();
+    store.loadProfile('deadbeef');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(store.state.isOwnProfile).toBe(true);
+  });
+
+  it('reports a failed follow instead of quietly going back to Follow', async () => {
+    mockSubscribe.mockImplementation((_filters, _onEvent, onEose) => {
+      queueMicrotask(() => onEose?.());
+      return makeCloseHandle();
+    });
+    mockPublish.mockRejectedValueOnce(new Error('signer refused'));
+    const store = createProfileStore();
+    store.loadProfile('targetPubkey');
+    store.followUser();
+    await vi.waitFor(() => expect(store.state.isFollowPending).toBe(false));
+    expect(store.state.followError).toBe("Couldn't update your follow list: signer refused");
+    expect(store.state.isFollowing).toBe(false);
+  });
+
+  it('holds "no notes" back until the notes subscription reaches EOSE', async () => {
+    let finishNotes: (() => void) | undefined;
+    mockSubscribe.mockImplementation((filters, _onEvent, onEose) => {
+      const f = Array.isArray(filters) ? filters[0] : filters;
+      if (f?.kinds?.includes(1)) finishNotes = () => onEose?.();
+      return makeCloseHandle();
+    });
+    const store = createProfileStore();
+    store.loadProfile('targetPubkey');
+    await vi.waitFor(() => expect(finishNotes).toBeDefined());
+    expect(store.state.notesLoading).toBe(true);
+    finishNotes?.();
+    expect(store.state.notesLoading).toBe(false);
   });
 
   it('isFollowing is false when target pubkey not in kind 3 p-tags', async () => {
@@ -620,7 +686,8 @@ describe('profile outbox gating', () => {
     await flush();
     const moreFilters = mockOutboxQuery.mock.calls.map((c) => classifyFilter(c[0]));
     expect(moreFilters).toContain('notes');
-    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(2);
+    // metadata, notes and the profile's own contact list; loadMore adds none.
+    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(3);
   });
 
   it('streams initial metadata and notes after an empty outbox history query', async () => {
@@ -678,7 +745,8 @@ describe('profile outbox gating', () => {
     store.loadMore();
     await flush();
     await flush();
-    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(2);
+    // metadata, notes and the profile's own contact list; loadMore adds none.
+    expect(mockOutboxSubscribe).toHaveBeenCalledTimes(3);
 
     store.destroy();
     for (const handle of handles) {

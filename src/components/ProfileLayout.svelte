@@ -10,9 +10,13 @@
   interface Props {
     metadata: ProfileContent | null;
     notes: NostrEvent[];
-    followingCount: number;
+    followingCount: number | null;
     isFollowing: boolean;
     isFollowPending: boolean;
+    isOwnProfile: boolean;
+    followError: string | null;
+    notesLoading: boolean;
+    metadataLoading: boolean;
     engagement: Map<string, EngagementCounts>;
     engagementVersion: number;
     reactionOptions: EmojiOption[];
@@ -30,6 +34,10 @@
     followingCount,
     isFollowing,
     isFollowPending,
+    isOwnProfile,
+    followError,
+    notesLoading,
+    metadataLoading,
     engagement,
     engagementVersion,
     reactionOptions,
@@ -54,30 +62,35 @@
   }
 </script>
 
-<div use:bindResizeObserver class="h-full w-full overflow-hidden flex {isWide ? 'flex-row' : 'flex-col'}">
+<!-- In a tall window the whole page scrolls together, so the header doesn't squeeze the notes. -->
+<div use:bindResizeObserver class="h-full w-full flex {isWide ? 'flex-row overflow-hidden' : 'flex-col overflow-y-auto'}">
   {#if isWide}
-    <!-- Wide layout: sidebar on left, notes on right -->
     <ProfileSidebar
       {metadata}
       {followingCount}
       {isFollowing}
       {isFollowPending}
+      {isOwnProfile}
+      {followError}
+      {metadataLoading}
       {onfollowclick}
       {profilePubkey}
     />
-    <ProfileNotes {notes} {engagement} {engagementVersion} {reactionOptions} {showReplies} {profileLabel} {onloadmore} {onshowreplieschange} />
+    <ProfileNotes {notes} {notesLoading} {engagement} {engagementVersion} {reactionOptions} {showReplies} {profileLabel} {onloadmore} {onshowreplieschange} />
   {:else}
-    <!-- Tall/square layout: header on top, notes below -->
-    <div class="shrink-0 overflow-hidden">
+    <div class="shrink-0">
       <ProfileHeader
         {metadata}
         {followingCount}
         {isFollowing}
         {isFollowPending}
+        {isOwnProfile}
+        {followError}
+        {metadataLoading}
         {onfollowclick}
         {profilePubkey}
       />
     </div>
-    <ProfileNotes {notes} {engagement} {engagementVersion} {reactionOptions} {showReplies} {profileLabel} {onloadmore} {onshowreplieschange} />
+    <ProfileNotes ownScroll={false} {notes} {notesLoading} {engagement} {engagementVersion} {reactionOptions} {showReplies} {profileLabel} {onloadmore} {onshowreplieschange} />
   {/if}
 </div>
